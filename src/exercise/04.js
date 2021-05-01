@@ -29,15 +29,45 @@ const SUSPENSE_CONFIG = {
   busyMinDurationMs: 700,
 }
 
-const pokemonResourceCache = {}
+const PokemonContext = React.createContext()
 
-const getPokemonResource = name => {
-  let resource = pokemonResourceCache[name]
-  if (!resource) {
-    resource = createPokemonResource(name)
-    pokemonResourceCache[name] = resource
-  }
-  return resource
+const usePokemonContext = () => {
+  return React.useContext(PokemonContext)
+}
+
+const PokemonCacheProvider = ({children, cacheTime = 5000}) => {
+  const cache = React.useRef({})
+  const expirations = React.useRef({})
+
+  const getPokemonResource = React.useCallback(
+    name => {
+      let resource = cache.current[name]
+      if (!resource) {
+        resource = createPokemonResource(name)
+        cache.current[name] = resource
+      }
+      expirations.current[name] = Date.now() + cacheTime
+      return resource
+    },
+    [cacheTime],
+  )
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      for (const [name, time] of Object.entries(expirations.current)) {
+        if (Date.now() > time) {
+          delete cache.current[name]
+        }
+      }
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <PokemonContext.Provider value={getPokemonResource}>
+      {children}
+    </PokemonContext.Provider>
+  )
 }
 
 function createPokemonResource(pokemonName) {
@@ -48,6 +78,7 @@ function App() {
   const [pokemonName, setPokemonName] = React.useState('')
   const [startTransition, isPending] = React.useTransition(SUSPENSE_CONFIG)
   const [pokemonResource, setPokemonResource] = React.useState(null)
+  const getPokemonResource = usePokemonContext()
 
   React.useEffect(() => {
     if (!pokemonName) {
@@ -57,7 +88,7 @@ function App() {
     startTransition(() => {
       setPokemonResource(getPokemonResource(pokemonName))
     })
-  }, [pokemonName, startTransition])
+  }, [pokemonName, startTransition, getPokemonResource])
 
   function handleSubmit(newPokemonName) {
     setPokemonName(newPokemonName)
@@ -91,4 +122,10 @@ function App() {
   )
 }
 
-export default App
+export default function AppWrapper() {
+  return (
+    <PokemonCacheProvider cacheTime={5000}>
+      <App />
+    </PokemonCacheProvider>
+  )
+}
